@@ -618,4 +618,8 @@ All notable changes to this project will be documented in this file. Breaking ch
 
 ### [3.5.3]
 ### Fixed
-- [Issue #540](https://github.com/tywalch/electrodb/issues/540) Rolls back a change introduced in 3.5.0 (via [533](https://github.com/tywalch/electrodb/pull/533/)) that caused over-filtering in collection queries, resulting in some collection members not being returned.   
+- [Issue #540](https://github.com/tywalch/electrodb/issues/540) Rolls back a change introduced in 3.5.0 (via [533](https://github.com/tywalch/electrodb/pull/533/)) that caused over-filtering in collection queries, resulting in some collection members not being returned.
+
+## [3.6.0]
+### Added
+- [Issue #543](https://github.com/tywalch/electrodb/issues/543); New `client` option for `go()` method allowing dynamic DynamoDB client override at query execution time. This enables use cases like multi-region routing, per-request client selection, and easier testing. Supported for all operation types: entity operations, collection queries, batch operations, and transactions.

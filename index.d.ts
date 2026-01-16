@@ -2538,6 +2538,7 @@ export interface QueryOptions {
   data?: "raw" | "includeKeys" | "attributes";
   order?: "asc" | "desc";
   consistent?: boolean;
+  client?: DocumentClient;
 }
 
 // subset of QueryOptions
@@ -2627,6 +2628,7 @@ interface GoBatchGetTerminalOptions<Attributes> {
   listeners?: Array<ElectroEventListener>;
   logger?: ElectroEventListener;
   consistent?: boolean;
+  client?: DocumentClient;
 }
 
 export type ExecutionOptionCompare = "keys" | "attributes" | "v2";
@@ -2654,6 +2656,7 @@ type ServiceQueryGoTerminalOptions = {
   order?: "asc" | "desc";
   hydrate?: boolean;
   consistent?: boolean;
+  client?: DocumentClient;
 } & QueryExecutionComparisonParts;
 
 type GoQueryTerminalOptions<Attributes> = {
@@ -2672,6 +2675,7 @@ type GoQueryTerminalOptions<Attributes> = {
   order?: "asc" | "desc";
   hydrate?: boolean;
   consistent?: boolean;
+  client?: DocumentClient;
 } & QueryExecutionComparisonParts;
 
 interface TransactWriteQueryOptions {
@@ -2683,6 +2687,7 @@ interface TransactWriteQueryOptions {
   listeners?: Array<ElectroEventListener>;
   logger?: ElectroEventListener;
   response?: "all_old";
+  client?: DocumentClient;
 }
 
 interface TransactGetQueryOptions<Attributes> {
@@ -2695,6 +2700,7 @@ interface TransactGetQueryOptions<Attributes> {
   listeners?: Array<ElectroEventListener>;
   logger?: ElectroEventListener;
   consistent?: boolean;
+  client?: DocumentClient;
 }
 
 export type ParamTerminalOptions<Attributes> = {
@@ -5548,9 +5554,14 @@ export class TransactGetEntity<
 type TransactWriteFunctionOptions = {
   token?: string;
   logger?: ElectroEventListener;
+  client?: DocumentClient;
 };
 
-type TransactGetFunctionOptions = {};
+type TransactGetFunctionOptions = {
+  token?: string;
+  logger?: ElectroEventListener;
+  client?: DocumentClient;
+};
 
 type TransactWriteExtractedType<
   T extends readonly any[],
