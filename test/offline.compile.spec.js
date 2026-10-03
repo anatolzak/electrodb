@@ -14,20 +14,10 @@ const FORMAT_PATH = path.resolve(__dirname, "../src/format.js");
 const format = require("../src/format.js");
 
 describe("JIT compiled item formatter", () => {
-  let suiteEnvHad, suiteEnvPrev;
-  before(() => {
-    suiteEnvHad = hasOwn(process.env, "ELECTRODB_COMPILE");
-    suiteEnvPrev = process.env.ELECTRODB_COMPILE;
-    delete process.env.ELECTRODB_COMPILE;
-  });
-  after(() => {
-    if (suiteEnvHad) process.env.ELECTRODB_COMPILE = suiteEnvPrev;
-    else delete process.env.ELECTRODB_COMPILE;
-  });
-
   describe("A. module surface (src/format.js)", () => {
-    it("exports { supportsCompilation, compileDocumentFormatter, runtime }", () => {
+    it("exports { supportsCompilation, isCompilable, compileDocumentFormatter, runtime }", () => {
       expect(format.supportsCompilation).to.be.a("function");
+      expect(format.isCompilable).to.be.a("function");
       expect(format.compileDocumentFormatter).to.be.a("function");
       expect(format.runtime).to.be.an("object");
       expect(format.runtime.fromSet, "runtime.fromSet").to.be.a("function");
@@ -75,37 +65,6 @@ describe("JIT compiled item formatter", () => {
       expect(fromSet(undefined)).to.equal(undefined);
     });
 
-    it("sameFormatted: verify comparator semantics (T6)", () => {
-      const { sameFormatted } = format;
-      expect(
-        sameFormatted({ a: NaN }, { a: NaN }),
-        "NaN vs NaN equal (Object.is)",
-      ).to.equal(true);
-      expect(sameFormatted({ a: -0 }, { a: 0 }), "-0 vs 0 not equal").to.equal(
-        false,
-      );
-      expect(
-        sameFormatted([1, 2], [1, 3]),
-        "equal-length array content mismatch",
-      ).to.equal(false);
-      expect(
-        sameFormatted([,], [undefined]),
-        "hole vs explicit undefined",
-      ).to.equal(false); // eslint-disable-line no-sparse-arrays
-      expect(
-        sameFormatted({ a: { b: 1 } }, { a: { b: 1, c: undefined } }),
-        "nested extra own key",
-      ).to.equal(false);
-      expect(
-        sameFormatted({ a: undefined }, {}),
-        "own-key-set sensitivity at top level",
-      ).to.equal(false);
-      expect(
-        sameFormatted({ a: [1, { b: "x" }] }, { a: [1, { b: "x" }] }),
-        "deep equal",
-      ).to.equal(true);
-    });
-
     it("compiled.source ends with the sourceURL marker", () => {
       const compiled = getCompiled(pair("orderRemapTorture").jit, "sourceURL");
       expect(
@@ -123,9 +82,10 @@ describe("JIT compiled item formatter", () => {
         def.eligible ? "eligible → compiled object" : "INELIGIBLE → null"
       } (${def.why})`, () => {
         const entity = pair(name).plain;
-        const result = format.compileDocumentFormatter(entity.model.schema, {
-          strict: true,
-        });
+        const result = format.compileDocumentFormatter(entity.model.schema);
+        expect(format.isCompilable(entity.model.schema), name).to.equal(
+          def.eligible,
+        );
         if (def.eligible) {
           expect(result, name).to.be.an("object");
           expect(result.fromDocument).to.be.a("function");
@@ -136,18 +96,7 @@ describe("JIT compiled item formatter", () => {
       });
     }
 
-    it("ineligibility is silent even in strict mode (null, no throw)", () => {
-      const entity = pair("getterWatcherTorture").plain;
-      let result;
-      expect(() => {
-        result = format.compileDocumentFormatter(entity.model.schema, {
-          strict: true,
-        });
-      }).to.not.throw();
-      expect(result).to.equal(null);
-    });
-
-    it("eligible-but-codegen-throws: strict rethrows, graceful returns null", () => {
+    it("eligible-but-codegen-throws: returns null", () => {
       const schema = pair("orderRemapTorture").plain.model.schema;
       const poisoned = new Proxy(schema, {
         get(target, prop, receiver) {
@@ -161,18 +110,13 @@ describe("JIT compiled item formatter", () => {
           return Reflect.get(target, prop, receiver);
         },
       });
-      expect(() =>
-        format.compileDocumentFormatter(poisoned, { strict: true }),
-      ).to.throw();
-      expect(
-        format.compileDocumentFormatter(poisoned, { strict: false }),
-      ).to.equal(null);
+      expect(format.compileDocumentFormatter(poisoned)).to.equal(null);
     });
 
     it("codegen is deterministic: same schema compiles to identical source", () => {
       const schema = pair("containerTorture").plain.model.schema;
-      const a = format.compileDocumentFormatter(schema, { strict: true });
-      const b = format.compileDocumentFormatter(schema, { strict: true });
+      const a = format.compileDocumentFormatter(schema);
+      const b = format.compileDocumentFormatter(schema);
       expect(a).to.be.an("object");
       expect(b).to.be.an("object");
       expect(a.source, "temp-name counters must reset per compile").to.equal(
@@ -1812,156 +1756,34 @@ describe("JIT compiled item formatter", () => {
     }
   });
 
-  describe("N. mode semantics (config compile flag, ELECTRODB_COMPILE, verify, CSP)", () => {
+  describe("N. mode semantics (config compile flag, CSP)", () => {
     const eligibleModel = registry.orderRemapTorture.model;
     const ineligibleModel = registry.getterWatcherTorture.model;
 
-    it("ELECTRODB_COMPILE=off beats config compile:true", () => {
-      const entity = withCompileEnv(
-        "off",
-        () => new Entity(eligibleModel, { table: TABLE, compile: true }),
+    it("compile:true compiles an eligible model", () => {
+      getCompiled(
+        new Entity(eligibleModel, { table: TABLE, compile: true }),
+        "config-on",
       );
-      expectNotCompiled(entity, "env-off");
     });
 
-    it("ELECTRODB_COMPILE=on compiles even when config omits compile", () => {
-      const entity = withCompileEnv(
-        "on",
-        () => new Entity(eligibleModel, { table: TABLE }),
+    it("compile omitted or false does not compile", () => {
+      expectNotCompiled(
+        new Entity(eligibleModel, { table: TABLE }),
+        "config-omitted",
       );
-      getCompiled(entity, "env-on");
+      expectNotCompiled(
+        new Entity(eligibleModel, { table: TABLE, compile: false }),
+        "config-false",
+      );
     });
 
-    it("ELECTRODB_COMPILE=on beats explicit compile:false", () => {
-      const entity = withCompileEnv(
-        "on",
-        () => new Entity(eligibleModel, { table: TABLE, compile: false }),
-      );
-      getCompiled(entity, "env-on-vs-false");
-    });
-
-    it("ELECTRODB_COMPILE=on with an INELIGIBLE model: null, no throw (ineligibility is not failure)", () => {
+    it("compile:true with an INELIGIBLE model: null, no throw (ineligibility is not failure)", () => {
       let entity;
       expect(() => {
-        entity = withCompileEnv(
-          "on",
-          () => new Entity(ineligibleModel, { table: TABLE }),
-        );
+        entity = new Entity(ineligibleModel, { table: TABLE, compile: true });
       }).to.not.throw();
-      expectNotCompiled(entity, "env-on-ineligible");
-    });
-
-    it("env read at construction time: entities built before the env change keep their mode", () => {
-      const before = new Entity(eligibleModel, { table: TABLE, compile: true });
-      withCompileEnv("off", () => {
-        getCompiled(before, "pre-env entity stays compiled");
-      });
-    });
-
-    it("ELECTRODB_COMPILE=verify: matching outputs pass through and equal interpreted", () => {
-      const jit = withCompileEnv(
-        "verify",
-        () => new Entity(eligibleModel, { table: TABLE }),
-      );
-      getCompiled(jit, "verify-clean");
-      const plain = new Entity(eligibleModel, { table: TABLE });
-      const item = { s: "sv", num: 3, zero_f: "z" };
-      const viaJit = jit.parse({ Attributes: item });
-      const viaPlain = plain.parse({ Attributes: item });
-      expectSame(viaJit.data, viaPlain.data, "verify-clean parity");
-    });
-
-    it("ELECTRODB_COMPILE=verify: a divergent compiled result throws an ElectroError", () => {
-      const jit = withCompileEnv(
-        "verify",
-        () => new Entity(eligibleModel, { table: TABLE }),
-      );
-      const compiled = getCompiled(jit, "verify-divergence");
-      compiled.fromDocument = () => ({ s: "WRONG", extra: 1 });
-      const err = captureError(() => jit.parse({ Attributes: { s: "sv" } }));
-      expect(err, "verify mode must throw on divergence").to.not.equal(null);
-      expect(err.isElectroError, "must be an ElectroError").to.equal(true);
-    });
-
-    it("fix #5: ELECTRODB_COMPILE matching is trimmed and case-insensitive", () => {
-      expectNotCompiled(
-        withCompileEnv(
-          " OFF ",
-          () => new Entity(eligibleModel, { table: TABLE, compile: true }),
-        ),
-        "env-OFF",
-      );
-      getCompiled(
-        withCompileEnv("On", () => new Entity(eligibleModel, { table: TABLE })),
-        "env-On",
-      );
-      const verify = withCompileEnv(
-        "VERIFY",
-        () => new Entity(eligibleModel, { table: TABLE }),
-      );
-      getCompiled(verify, "env-VERIFY");
-      expect(
-        verify.model.schema.compiledVerify,
-        "VERIFY must enable verify mode",
-      ).to.equal(true);
-    });
-
-    it("fix #5: unrecognized ELECTRODB_COMPILE values are ignored (config decides)", () => {
-      getCompiled(
-        withCompileEnv(
-          "banana",
-          () => new Entity(eligibleModel, { table: TABLE, compile: true }),
-        ),
-        "env-junk-config-on",
-      );
-      expectNotCompiled(
-        withCompileEnv(
-          "banana",
-          () => new Entity(eligibleModel, { table: TABLE }),
-        ),
-        "env-junk-config-off",
-      );
-      expectNotCompiled(
-        withCompileEnv("", () => new Entity(eligibleModel, { table: TABLE })),
-        "env-empty",
-      );
-    });
-
-    it("fix #4: strict mode with no new Function support throws an ElectroError; graceful returns null", () => {
-      format._setCompilationSupportedForTesting(false);
-      try {
-        expect(format.supportsCompilation()).to.equal(false);
-        const schema = pair("orderRemapTorture").plain.model.schema;
-        const err = captureError(() =>
-          format.compileDocumentFormatter(schema, { strict: true }),
-        );
-        expect(err, "strict must not silently no-op").to.not.equal(null);
-        expect(err.isElectroError).to.equal(true);
-        expect(err.code).to.equal(1027);
-        expect(err.message).to.include("new Function");
-        expect(
-          format.compileDocumentFormatter(schema, { strict: false }),
-          "graceful falls back",
-        ).to.equal(null);
-      } finally {
-        format._setCompilationSupportedForTesting(null);
-      }
-    });
-
-    it("fix #4: ELECTRODB_COMPILE=on with blocked codegen fails Entity construction loudly", () => {
-      format._setCompilationSupportedForTesting(false);
-      try {
-        const err = captureError(() =>
-          withCompileEnv(
-            "on",
-            () => new Entity(eligibleModel, { table: TABLE }),
-          ),
-        );
-        expect(err).to.not.equal(null);
-        expect(err.isElectroError).to.equal(true);
-      } finally {
-        format._setCompilationSupportedForTesting(null);
-      }
+      expectNotCompiled(entity, "config-on-ineligible");
     });
 
     function deepListModel(depth) {
@@ -2006,23 +1828,6 @@ describe("JIT compiled item formatter", () => {
       return codegenFailingDepth;
     }
 
-    it("fix #6: strict env mode wraps eligible codegen failures in an ElectroError (no raw RangeError)", () => {
-      const depth = findCodegenFailingDepth();
-      const err = captureError(() =>
-        withCompileEnv(
-          "on",
-          () => new Entity(deepListModel(depth), { table: TABLE }),
-        ),
-      );
-      expect(err, "strict must surface the codegen failure").to.not.equal(null);
-      expect(
-        err.isElectroError,
-        `expected ElectroError, got ${err.constructor.name}: ${err.message}`,
-      ).to.equal(true);
-      expect(err.code).to.equal(1027);
-      expect(err.cause, "codegen error as cause").to.be.instanceOf(RangeError);
-    });
-
     it("fix #6: graceful compile:true falls back to interpreted for the same codegen-failing model", () => {
       const depth = findCodegenFailingDepth();
       let entity;
@@ -2039,36 +1844,12 @@ describe("JIT compiled item formatter", () => {
       ).to.deep.equal({ d: [] });
     });
 
-    it("fix #7: a strict compile failure clears previously-compiled state", () => {
-      const entity = new Entity(eligibleModel, { table: TABLE });
-      const schema = entity.model.schema;
-      schema.compileRetrievalFormatters({ strict: true, verify: true });
-      expect(schema.compiled).to.not.equal(null);
-      expect(schema.compiledVerify).to.equal(true);
-      format._setCompilationSupportedForTesting(false);
-      try {
-        expect(() =>
-          schema.compileRetrievalFormatters({ strict: true, verify: true }),
-        ).to.throw();
-      } finally {
-        format._setCompilationSupportedForTesting(null);
-      }
-      expect(
-        schema.compiled,
-        "stale formatter cleared before recompiling",
-      ).to.equal(null);
-      expect(schema.compiledVerify).to.equal(false);
-    });
-
-    it("fix #8: schema.compiled/compiledVerify are non-enumerable — JSON.stringify(schema) has no generated source", () => {
+    it("fix #8: schema.compiled is non-enumerable — JSON.stringify(schema) has no generated source", () => {
       const entity = new Entity(eligibleModel, { table: TABLE, compile: true });
       const schema = entity.model.schema;
       getCompiled(entity, "fix8");
       expect(
         Object.prototype.propertyIsEnumerable.call(schema, "compiled"),
-      ).to.equal(false);
-      expect(
-        Object.prototype.propertyIsEnumerable.call(schema, "compiledVerify"),
       ).to.equal(false);
       expect(Object.keys(schema)).to.not.include("compiled");
       const json = JSON.stringify(schema);
@@ -2097,13 +1878,7 @@ describe("JIT compiled item formatter", () => {
           compiledIsNull = entity.model.schema.compiled === null;
           parsed = entity.parse({ Attributes: { s: "sv" } }).data;
         } catch (e) { threw = e.message; }
-        // strict env mode must NOT silently run interpreted where codegen is blocked
-        let strictThrewElectro = false;
-        process.env.ELECTRODB_COMPILE = "on";
-        try {
-          new Entity(${JSON.stringify(eligibleModel)}, { table: "t" });
-        } catch (e) { strictThrewElectro = e.isElectroError === true; }
-        console.log(JSON.stringify({ supports, constructed, compiledIsNull, parsed, threw, strictThrewElectro }));
+        console.log(JSON.stringify({ supports, constructed, compiledIsNull, parsed, threw }));
       `;
       const stdout = execFileSync(
         process.execPath,
@@ -2128,10 +1903,6 @@ describe("JIT compiled item formatter", () => {
         "compile:true silently falls back (compiled === null)",
       ).to.equal(true);
       expect(result.parsed).to.deep.equal({ s: "sv" });
-      expect(
-        result.strictThrewElectro,
-        "ELECTRODB_COMPILE=on throws ElectroError when banned (fix #4)",
-      ).to.equal(true);
     });
   });
 
@@ -2519,19 +2290,6 @@ function mockClient(responses) {
     return new DynamoDBSet(arr, typeof arr[0]);
   };
   return { client, calls };
-}
-
-function withCompileEnv(value, fn) {
-  const had = hasOwn(process.env, "ELECTRODB_COMPILE");
-  const prev = process.env.ELECTRODB_COMPILE;
-  if (value === undefined) delete process.env.ELECTRODB_COMPILE;
-  else process.env.ELECTRODB_COMPILE = value;
-  try {
-    return fn();
-  } finally {
-    if (had) process.env.ELECTRODB_COMPILE = prev;
-    else delete process.env.ELECTRODB_COMPILE;
-  }
 }
 
 function mulberry32(seed) {

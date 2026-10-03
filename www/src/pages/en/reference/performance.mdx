@@ -35,24 +35,12 @@ const entity = new Entity(schema, { table, client, compile: true });
 
 The formatter is compiled once, when the `Entity` is constructed.
 
-### Control globally
-
-The `ELECTRODB_COMPILE` environment variable overrides the per-entity `compile` option:
-
-| Value    | Behavior                                                                                                    |
-| -------- | ----------------------------------------------------------------------------------------------------------- |
-| `on`     | Force compilation for all entities. Throws `CompilationFailed` where runtime code generation is unavailable. |
-| `off`    | Disable compilation everywhere, ignoring `compile: true`.                                                   |
-| `verify` | Run both the compiled and interpreted paths on every read and throw if their output diverges.                |
-
-`verify` is a correctness check for CI, not for production — it does the work of both paths.
-
 ### When it is skipped
 
 Compilation falls back to the interpreted path (unchanged behavior) when:
 
 - The schema defines any user getter on an attribute. Custom getters run arbitrary code, so those schemas are never compiled.
-- Runtime code generation is unavailable (`new Function` is blocked, e.g. under a strict CSP). In `off` or default mode this is a silent fallback; in `on` mode it throws `CompilationFailed`.
+- Runtime code generation is unavailable (`new Function` is blocked, e.g. under a strict CSP).
 
 ### Services
 

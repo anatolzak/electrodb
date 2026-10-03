@@ -21,7 +21,7 @@ const e = require("./errors");
 const u = require("./util");
 const v = require("./validations");
 const { DynamoDBSet } = require("./set");
-const { compileDocumentFormatter, sameFormatted } = require("./format");
+const { compileDocumentFormatter } = require("./format");
 
 function getValueType(value) {
   if (value === undefined) {
@@ -1276,12 +1276,6 @@ class Schema {
       enumerable: false,
       configurable: true,
     });
-    Object.defineProperty(this, "compiledVerify", {
-      value: false,
-      writable: true,
-      enumerable: false,
-      configurable: true,
-    });
   }
 
   static normalizeAttributes(
@@ -1893,12 +1887,8 @@ class Schema {
     return Array.from(this.requiredAttributes);
   }
 
-  compileRetrievalFormatters(options = {}) {
-    // clear stale state first so a strict compile failure leaves null/false
-    this.compiled = null;
-    this.compiledVerify = false;
-    this.compiled = compileDocumentFormatter(this, options);
-    this.compiledVerify = !!options.verify && this.compiled !== null;
+  compileRetrievalFormatters() {
+    this.compiled = compileDocumentFormatter(this);
     return this.compiled;
   }
 
@@ -1907,50 +1897,9 @@ class Schema {
       this.compiled !== null &&
       (config.data === undefined || config.data === DataOptions.attributes)
     ) {
-      const filter = config._returnAttributesFilter;
-      if (this.compiledVerify) {
-        return this._verifyCompiledRetrieval(item, config, filter);
-      }
-      return this.compiled.fromDocument(item, filter);
+      return this.compiled.fromDocument(item, config._returnAttributesFilter);
     }
     return this._formatItemForRetrievalInterpreted(item, config);
-  }
-
-  // ELECTRODB_COMPILE=verify: run both paths, throw on any divergence
-  _verifyCompiledRetrieval(item, config, filter) {
-    let compiledResult;
-    let compiledError;
-    try {
-      compiledResult = this.compiled.fromDocument(item, filter);
-    } catch (err) {
-      compiledError = err;
-    }
-    let interpretedResult;
-    let interpretedError;
-    try {
-      interpretedResult = this._formatItemForRetrievalInterpreted(item, config);
-    } catch (err) {
-      interpretedError = err;
-    }
-    let diverged;
-    if (compiledError !== undefined || interpretedError !== undefined) {
-      diverged =
-        compiledError === undefined ||
-        interpretedError === undefined ||
-        compiledError.message !== interpretedError.message;
-    } else {
-      diverged = !sameFormatted(compiledResult, interpretedResult);
-    }
-    if (diverged) {
-      throw new e.ElectroError(
-        e.ErrorCodes.InvalidOptions,
-        "ELECTRODB_COMPILE=verify divergence: compiled formatter output did not match interpreted output",
-      );
-    }
-    if (compiledError !== undefined) {
-      throw compiledError;
-    }
-    return compiledResult;
   }
 
   _formatItemForRetrievalInterpreted(item, config) {

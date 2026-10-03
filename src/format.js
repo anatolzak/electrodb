@@ -1,7 +1,5 @@
 "use strict";
 
-const e = require("./errors");
-
 const SET = "set";
 const MAP = "map";
 const LIST = "list";
@@ -9,17 +7,8 @@ const STRING = "string";
 const ENUM = "enum";
 
 let supported = null;
-let supportOverride = null;
-
-// test hook: force the supportsCompilation() result (non-boolean restores detection)
-function _setCompilationSupportedForTesting(value) {
-  supportOverride = typeof value === "boolean" ? value : null;
-}
 
 function supportsCompilation() {
-  if (supportOverride !== null) {
-    return supportOverride;
-  }
   if (supported === null) {
     try {
       new Function("");
@@ -33,29 +22,6 @@ function supportsCompilation() {
 
 function hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj, key);
-}
-
-function resolveCompileOptions(configCompile) {
-  let env;
-  if (typeof process !== "undefined" && process.env) {
-    env = process.env.ELECTRODB_COMPILE;
-  }
-  if (typeof env === "string") {
-    env = env.trim().toLowerCase();
-  }
-  if (env === "off") {
-    return null;
-  }
-  if (env === "on") {
-    return { strict: true, verify: false };
-  }
-  if (env === "verify") {
-    return { strict: true, verify: true };
-  }
-  if (configCompile === true) {
-    return { strict: false, verify: false };
-  }
-  return null;
 }
 
 function fromSet(value) {
@@ -76,60 +42,6 @@ function fromSet(value) {
     return Array.from(value);
   }
   return value;
-}
-
-// order-insensitive, own-key-set sensitive deep compare for verify mode;
-// non-plain leaves must be reference-equal (both paths pass them through).
-function sameFormatted(a, b) {
-  if (Object.is(a, b)) {
-    return true;
-  }
-  if (
-    typeof a !== "object" ||
-    typeof b !== "object" ||
-    a === null ||
-    b === null
-  ) {
-    return false;
-  }
-  const aIsArray = Array.isArray(a);
-  if (aIsArray !== Array.isArray(b)) {
-    return false;
-  }
-  if (aIsArray) {
-    if (a.length !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < a.length; i++) {
-      const own = hasOwn(a, i);
-      if (own !== hasOwn(b, i)) {
-        return false;
-      }
-      if (own && !sameFormatted(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (
-    Object.getPrototypeOf(a) !== Object.prototype ||
-    Object.getPrototypeOf(b) !== Object.prototype
-  ) {
-    return false;
-  }
-  const aKeys = Object.keys(a);
-  if (aKeys.length !== Object.keys(b).length) {
-    return false;
-  }
-  for (const key of aKeys) {
-    if (!hasOwn(b, key)) {
-      return false;
-    }
-    if (!sameFormatted(a[key], b[key])) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function generate(schema) {
@@ -293,32 +205,22 @@ function generate(schema) {
   return assembleFactory();
 }
 
-function compileDocumentFormatter(schema, options) {
-  const opts = options || {};
-  if (!supportsCompilation()) {
-    if (opts.strict === true) {
-      throw new e.ElectroError(
-        e.ErrorCodes.CompilationFailed,
-        "Formatter compilation is required (strict compile mode via ELECTRODB_COMPILE) but this environment does not support runtime code generation (new Function is unavailable)",
-      );
+function isCompilable(schema) {
+  for (const entry of schema.traverser.getAll()) {
+    if (entry[1].hasUserGet) {
+      return false;
     }
+  }
+  return true;
+}
+
+function compileDocumentFormatter(schema) {
+  if (!supportsCompilation() || !isCompilable(schema)) {
     return null;
   }
   try {
-    for (const entry of schema.traverser.getAll()) {
-      if (entry[1].hasUserGet) {
-        return null;
-      }
-    }
     return generate(schema);
   } catch (err) {
-    if (opts.strict === true) {
-      throw new e.ElectroError(
-        e.ErrorCodes.CompilationFailed,
-        `Formatter compilation failed in strict compile mode: ${err.message}`,
-        err,
-      );
-    }
     return null;
   }
 }
@@ -327,9 +229,7 @@ const runtime = { fromSet, hasOwn };
 
 module.exports = {
   supportsCompilation,
+  isCompilable,
   compileDocumentFormatter,
-  resolveCompileOptions,
-  sameFormatted,
   runtime,
-  _setCompilationSupportedForTesting,
 };

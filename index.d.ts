@@ -5490,7 +5490,7 @@ export type EntityConfiguration = {
     version?: string;
   };
   ignoreOwnership?: boolean;
-  /** JIT-compile the read-path formatter (default false); env ELECTRODB_COMPILE=off|on|verify overrides */
+  /** JIT-compile the read-path formatter (default false) */
   compile?: boolean;
 };
 

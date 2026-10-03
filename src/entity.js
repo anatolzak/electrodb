@@ -37,7 +37,6 @@ const { FilterOperations, ExpressionState, formatExpressionName } = require("./o
 const { WhereFactory } = require("./where");
 const { clauses, ChainState } = require("./clauses");
 const { EventManager } = require("./events");
-const { resolveCompileOptions } = require("./format");
 const validations = require("./validations");
 const c = require("./client");
 const u = require("./util");
@@ -61,9 +60,8 @@ class Entity {
     this._validateModel(model);
     this.version = EntityVersions.v1;
     this.model = this._parseModel(model, this.config);
-    const compileOptions = resolveCompileOptions(this.config.compile);
-    if (compileOptions !== null) {
-      this.model.schema.compileRetrievalFormatters(compileOptions);
+    if (this.config.compile === true) {
+      this.model.schema.compileRetrievalFormatters();
     }
     /** start beta/v1 condition **/
     this.config.table = config.table || model.table;
